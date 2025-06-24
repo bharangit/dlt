@@ -1,0 +1,46 @@
+import dlt
+from pyspark.sql.functions import concat_ws, col, md5, from_json
+from pyspark.sql.types import StructType, StringType, TimestampType
+
+# replace with your topic and consumer
+topic_name = "your_topic"
+consumer_name ="your_consumer"
+
+#replace secret-scope with your scope
+_credentials = dict(
+        confluent_bootstrap_servers = dbutils.secrets.get("secret-scope","confluentKafkaBootstrapServer"),
+        confluent_api_key=  dbutils.secrets.get("secret-scope","confluentKafkaApiKey"),
+        confluent_api_secret=   dbutils.secrets.get("secret-scope","confluentKafkaSecret")
+)
+
+#@dlt is the decarator 
+@dlt.table(
+    name="bronze_kafka_stream",    #name of bronze table
+    comment="Raw Kafka stream ingested as JSON",
+    table_properties={"quality": "bronze"} #quality to define the layer in medallion architecture
+)
+def read_kafka():  
+    json_schema_df= (
+        spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", _credentials["confluent_bootstrap_servers"])
+        .option("kafka.security.protocol", "SASL_SSL")
+        .option("kafka.sasl.jaas.config", "kafkashaded.org.apache.kafka.common.security.plain.PlainLoginModule required username='{}' password='{}';".format(_credentials["confluent_api_key"] , _credentials["confluent_api_secret"]))
+        .option("kafka.group.id", consumer_name)
+        .option("kafka.ssl.endpoint.identification.algorithm", "https")
+        .option("kafka.sasl.mechanism", "PLAIN")
+        .option("subscribe", topic_name)
+        .option("startingOffsets", "latest")
+        .option("failOnDataLoss", "false")        
+        .load()
+    )
+    
+    df = json_schema_df.selectExpr(    
+    "CAST(value AS STRING) AS raw_json",
+    "timestamp AS kafka_timestamp",
+    "topic", "partition", "offset",
+    "CAST(key AS STRING) AS key",
+    "CAST(md5(concat(CAST(timestamp AS STRING), CAST(offset AS STRING))) AS STRING) AS offset_hashkey" 
+    )
+
+    return df
