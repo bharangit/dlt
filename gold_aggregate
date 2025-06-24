@@ -1,0 +1,9 @@
+import dlt
+
+@dlt.table(
+    name="gold_event_metrics",
+    table_properties={"quality": "gold", "description": "Aggregated event counts"}
+)
+def gold_aggregates():
+    df = dlt.read("silver_cleaned_events")  #read from silver
+    return df.groupBy("column_to_groupby").count() #replace "column_to_groupby" with your column to group by
